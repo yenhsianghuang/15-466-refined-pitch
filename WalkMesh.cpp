@@ -9,7 +9,9 @@
 #include <algorithm>
 #include <string>
 
-WalkMesh::WalkMesh(std::vector< glm::vec3 > const &vertices_, std::vector< glm::vec3 > const &normals_, std::vector< glm::uvec3 > const &triangles_)
+WalkMesh::WalkMesh(std::vector< glm::vec3 > const &vertices_,
+                   std::vector< glm::vec3 > const &normals_,
+                   std::vector< glm::uvec3 > const &triangles_)
 	: vertices(vertices_), normals(normals_), triangles(triangles_) {
 
 	//construct next_vertex map (maps each edge to the next vertex in the triangle):
@@ -278,7 +280,7 @@ WalkMeshes::WalkMeshes(std::string const &filename) {
 				triangles[ti].z - e.vertex_begin
 			);
 		}
-		
+
 		std::string name(names.begin() + e.name_begin, names.begin() + e.name_end);
 
 		auto ret = meshes.emplace(name, WalkMesh(wm_vertices, wm_normals, wm_triangles));

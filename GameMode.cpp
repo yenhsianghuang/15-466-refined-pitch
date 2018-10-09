@@ -1,18 +1,18 @@
 #include "GameMode.hpp"
 
-#include "MenuMode.hpp"
 #include "Load.hpp"
+#include "MenuMode.hpp"
 #include "MeshBuffer.hpp"
 #include "Scene.hpp"
-#include "gl_errors.hpp" //helper for dumpping OpenGL error messages
-#include "check_fb.hpp" //helper for checking currently bound OpenGL framebuffer
-#include "read_chunk.hpp" //helper for reading a vector of structures from a file
-#include "data_path.hpp" //helper to get paths relative to executable
-#include "compile_program.hpp" //helper to compile opengl shader programs
-#include "draw_text.hpp" //helper to... um.. draw text
-#include "load_save_png.hpp"
-#include "texture_program.hpp"
+#include "check_fb.hpp"  //helper for checking currently bound OpenGL framebuffer
+#include "compile_program.hpp"  //helper to compile opengl shader programs
+#include "data_path.hpp"        //helper to get paths relative to executable
 #include "depth_program.hpp"
+#include "draw_text.hpp"  //helper to... um.. draw text
+#include "gl_errors.hpp"  //helper for dumpping OpenGL error messages
+#include "load_save_png.hpp"
+#include "read_chunk.hpp"  //helper for reading a vector of structures from a file
+#include "texture_program.hpp"
 
 #include <glm/gtc/type_ptr.hpp>
 
@@ -34,6 +34,12 @@ Load< GLuint > meshes_for_texture_program(LoadTagDefault, [](){
 Load< GLuint > meshes_for_depth_program(LoadTagDefault, [](){
 	return new GLuint(meshes->make_vao_for_program(depth_program->program));
 });
+
+Load< WalkMeshes > walk_meshes(LoadTagDefault, [](){
+	return new WalkMeshes(data_path("vignette.walkmesh"));
+});
+
+const WalkMesh *walk_mesh = nullptr;
 
 //used for fullscreen passes:
 Load< GLuint > empty_vao(LoadTagDefault, [](){
@@ -71,13 +77,17 @@ Load< GLuint > blur_program(LoadTagDefault, [](){
 		"		fract(dot(gl_FragCoord.xy ,vec2(12.9898,78.233))),\n"
 		"		fract(dot(gl_FragCoord.xy ,vec2(96.3869,-27.5796)))\n"
 		"	));\n"
+#if 0
+// disable blur
 		//do a four-pixel average to blur:
-		"	vec4 blur =\n"
-		"		+ 0.25 * texture(tex, (gl_FragCoord.xy + vec2(ofs.x,ofs.y)) / textureSize(tex, 0))\n"
-		"		+ 0.25 * texture(tex, (gl_FragCoord.xy + vec2(-ofs.y,ofs.x)) / textureSize(tex, 0))\n"
-		"		+ 0.25 * texture(tex, (gl_FragCoord.xy + vec2(-ofs.x,-ofs.y)) / textureSize(tex, 0))\n"
-		"		+ 0.25 * texture(tex, (gl_FragCoord.xy + vec2(ofs.y,-ofs.x)) / textureSize(tex, 0))\n"
-		"	;\n"
+        "	vec4 blur =\n"
+        "		+ 0.25 * texture(tex, (gl_FragCoord.xy + vec2(ofs.x,ofs.y)) / textureSize(tex, 0))\n"
+        "		+ 0.25 * texture(tex, (gl_FragCoord.xy + vec2(-ofs.y,ofs.x)) / textureSize(tex, 0))\n"
+        "		+ 0.25 * texture(tex, (gl_FragCoord.xy + vec2(-ofs.x,-ofs.y)) / textureSize(tex, 0))\n"
+        "		+ 0.25 * texture(tex, (gl_FragCoord.xy + vec2(ofs.y,-ofs.x)) / textureSize(tex, 0))\n"
+        "	;\n"
+#endif
+		"	vec4 blur = texture(tex, (gl_FragCoord.xy) / textureSize(tex, 0));\n"
 		"	fragColor = vec4(blur.rgb, 1.0);\n" //blur;\n"
 		"}\n"
 	);
@@ -140,6 +150,7 @@ Scene::Transform *camera_parent_transform = nullptr;
 Scene::Camera *camera = nullptr;
 Scene::Transform *spot_parent_transform = nullptr;
 Scene::Lamp *spot = nullptr;
+Scene::Transform *sphere_transform = nullptr;
 
 Load< Scene > scene(LoadTagDefault, [](){
 	Scene *ret = new Scene;
@@ -191,10 +202,15 @@ Load< Scene > scene(LoadTagDefault, [](){
 			if (spot_parent_transform) throw std::runtime_error("Multiple 'SpotParent' transforms in scene.");
 			spot_parent_transform = t;
 		}
+		if (t->name == "Sphere") {
+			if (sphere_transform) throw std::runtime_error("Multiple 'Sphere' transforms in scene.");
+			sphere_transform = t;
+		}
 
 	}
 	if (!camera_parent_transform) throw std::runtime_error("No 'CameraParent' transform in scene.");
 	if (!spot_parent_transform) throw std::runtime_error("No 'SpotParent' transform in scene.");
+	if (!sphere_transform) throw std::runtime_error("No 'Sphere' transform in scene.");
 
 	//look up the camera:
 	for (Scene::Camera *c = ret->first_camera; c != nullptr; c = c->alloc_next) {
@@ -209,7 +225,7 @@ Load< Scene > scene(LoadTagDefault, [](){
 	for (Scene::Lamp *l = ret->first_lamp; l != nullptr; l = l->alloc_next) {
 		if (l->transform->name == "Spot") {
 			if (spot) throw std::runtime_error("Multiple 'Spot' objects in scene.");
-			if (l->type != Scene::Lamp::Spot) throw std::runtime_error("Lamp 'Spot' is not a spotlight.");
+            if (l->type != Scene::Lamp::Spot) throw std::runtime_error("Lamp 'Spot' is not a spotlight.");
 			spot = l;
 		}
 	}
@@ -219,6 +235,15 @@ Load< Scene > scene(LoadTagDefault, [](){
 });
 
 GameMode::GameMode() {
+    walk_mesh = &walk_meshes->lookup("Navmesh");
+    walk_point = walk_mesh->start(sphere_transform->position);
+    player.at = walk_mesh->world_point(walk_point);
+    player.up = glm::vec3(0.0f, 0.0f, 1.0f);
+    player.forward = glm::vec3(0.0f, -1.0f, 0.0f);  // facing -y initially
+	player.right = glm::cross(player.forward, player.up);
+
+    sphere_transform->position = player.at;
+
 }
 
 GameMode::~GameMode() {
@@ -239,7 +264,20 @@ bool GameMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 			spot_spin += 5.0f * evt.motion.xrel / float(window_size.x);
 			return true;
 		}
+	}
 
+	//handle tracking the state of WSAD for roll control:
+	if (evt.type == SDL_KEYDOWN || evt.type == SDL_KEYUP) {
+		if (evt.key.keysym.scancode == SDL_SCANCODE_W) {
+			control.up = (evt.type == SDL_KEYDOWN);
+		} else if (evt.key.keysym.scancode == SDL_SCANCODE_S) {
+			control.down = (evt.type == SDL_KEYDOWN);
+		} else if (evt.key.keysym.scancode == SDL_SCANCODE_A) {
+			control.left = (evt.type == SDL_KEYDOWN);
+		} else if (evt.key.keysym.scancode == SDL_SCANCODE_D) {
+			control.right = (evt.type == SDL_KEYDOWN);
+		}
+        return true;
 	}
 
 	return false;
@@ -248,6 +286,47 @@ bool GameMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 void GameMode::update(float elapsed) {
 	camera_parent_transform->rotation = glm::angleAxis(camera_spin, glm::vec3(0.0f, 0.0f, 1.0f));
 	spot_parent_transform->rotation = glm::angleAxis(spot_spin, glm::vec3(0.0f, 0.0f, 1.0f));
+
+	//update position on walk mesh:
+    player.speed = 20.0f;
+    if (control.up) {
+        player.forward = glm::vec3(0.0f, 1.0f, 0.0f);
+        sphere_transform->rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+    } else if (control.down) {
+        player.forward = glm::vec3(0.0f, -1.0f, 0.0f);
+        sphere_transform->rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f) * get_quat(0.0f, 0.0f, 1.0f, M_PI);
+    } else if (control.left) {
+        player.forward = glm::vec3(-1.0f, 0.0f, 0.0f);
+        sphere_transform->rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f) * get_quat(0.0f, 0.0f, 1.0f, M_PI/2.0);
+    } else if (control.right) {
+        player.forward = glm::vec3(1.0f, 0.0f, 0.0f);
+        sphere_transform->rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f) * get_quat(0.0f, 0.0f, 1.0f, -M_PI/2.0);
+    } else {
+        player.speed = 0.0f;
+    }
+	glm::vec3 step = player.forward * player.speed * elapsed;
+	walk_mesh->walk(walk_point, step);
+
+	//update player position:
+	player.at = walk_mesh->world_point(walk_point);
+    sphere_transform->position = player.at;
+#if 0
+
+	//update player orientation:
+	glm::vec3 old_player_up = player_up;
+	player_up = walk_mesh->world_normal(walk_point);
+
+	glm::quat orientation_change = (compute rotation that takes old_player_up to player_up)
+	player_forward = orientation_change * player_forward;
+
+	//make sure player_forward is perpendicular to player_up (the earlier
+    //rotation should ensure that, but it might drift over time):
+	player_forward = glm::normalize(player_forward - player_up * glm::dot(player_up, player_forward));
+
+	//compute rightward direction from forward and up:
+	player_right = glm::cross(player_forward, player_up);
+#endif
+
 }
 
 //GameMode will render to some offscreen framebuffer(s).
@@ -279,12 +358,12 @@ struct Framebuffers {
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 			glBindTexture(GL_TEXTURE_2D, 0);
-	
+
 			if (depth_rb == 0) glGenRenderbuffers(1, &depth_rb);
 			glBindRenderbuffer(GL_RENDERBUFFER, depth_rb);
 			glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, size.x, size.y);
 			glBindRenderbuffer(GL_RENDERBUFFER, 0);
-	
+
 			if (fb == 0) glGenFramebuffers(1, &fb);
 			glBindFramebuffer(GL_FRAMEBUFFER, fb);
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color_tex, 0);
@@ -317,7 +396,7 @@ struct Framebuffers {
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 			glBindTexture(GL_TEXTURE_2D, 0);
-	
+
 			if (shadow_fb == 0) glGenFramebuffers(1, &shadow_fb);
 			glBindFramebuffer(GL_FRAMEBUFFER, shadow_fb);
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, shadow_color_tex, 0);
@@ -426,7 +505,7 @@ void GameMode::draw(glm::uvec2 const &drawable_size) {
 	//Copy scene from color buffer to screen, performing post-processing effects:
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, fbs.color_tex);
-	glUseProgram(*blur_program);
+    glUseProgram(*blur_program);
 	glBindVertexArray(*empty_vao);
 
 	glDrawArrays(GL_TRIANGLES, 0, 3);

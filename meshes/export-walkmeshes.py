@@ -122,7 +122,7 @@ for obj in bpy.data.objects:
 			assert(mesh.loops[poly.loop_indices[i]].vertex_index == poly.vertices[i])
 			triangles += write_vertex(poly.vertices[i], mesh.loops[poly.loop_indices[i]].normal)
 		triangle_count += 1
-	
+
 	#write (and possibly average) the normals:
 	for ns in vertex_normals:
 		avg = None
@@ -136,7 +136,7 @@ for obj in bpy.data.objects:
 				print("Normal " + str(n) + " different than average " + str(avg) + " of " + str(len(ns)) + ".")
 		normals += struct.pack('fff', *avg)
 		normal_count += 1
-	
+
 	assert(normal_count == position_count)
 
 	vertex_end = position_count

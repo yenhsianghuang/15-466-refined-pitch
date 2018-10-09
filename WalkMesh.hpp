@@ -33,20 +33,17 @@ struct WalkMesh {
 	void walk(WalkPoint &wp, glm::vec3 const &step) const;
 
 	//used to read back results of walking:
-	glm::vec3 world_point(WalkPoint const &wp) const {
-		return wp.weights.x * vertices[wp.triangle.x]
-		     + wp.weights.y * vertices[wp.triangle.y]
-		     + wp.weights.z * vertices[wp.triangle.z];
-	}
+    glm::vec3 world_point(WalkPoint const &wp) const {
+        return wp.weights.x * vertices[wp.triangle.x] +
+               wp.weights.y * vertices[wp.triangle.y] +
+               wp.weights.z * vertices[wp.triangle.z];
+    }
 
-	glm::vec3 world_normal(WalkPoint const &wp) const {
-		return glm::normalize(
-			wp.weights.x * normals[wp.triangle.x]
-		     + wp.weights.y * normals[wp.triangle.y]
-		     + wp.weights.z * normals[wp.triangle.z]
-		);
-	}
-
+    glm::vec3 world_normal(WalkPoint const &wp) const {
+        return glm::normalize(wp.weights.x * normals[wp.triangle.x] +
+                              wp.weights.y * normals[wp.triangle.y] +
+                              wp.weights.z * normals[wp.triangle.z]);
+    }
 };
 
 struct WalkMeshes {

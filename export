@@ -1,0 +1,7 @@
+#/bin/bash
+
+FILENAME=vignette
+
+blender --background --python meshes/export-meshes.py -- meshes/$FILENAME.blend:1 dist/$FILENAME.pnct
+blender --background --python meshes/export-scene.py -- meshes/$FILENAME.blend:1 dist/$FILENAME.scene
+blender --background --python meshes/export-walkmeshes.py -- meshes/$FILENAME.blend:3 dist/$FILENAME.walkmesh

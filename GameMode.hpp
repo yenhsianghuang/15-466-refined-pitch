@@ -2,8 +2,9 @@
 
 #include "Mode.hpp"
 
-#include "MeshBuffer.hpp"
 #include "GL.hpp"
+#include "MeshBuffer.hpp"
+#include "WalkMesh.hpp"
 
 #include <SDL.h>
 #include <glm/glm.hpp>
@@ -30,4 +31,26 @@ struct GameMode : public Mode {
 
 	float camera_spin = 0.0f;
 	float spot_spin = 0.0f;
+
+    WalkMesh::WalkPoint walk_point;
+
+    struct {
+        glm::vec3 at;
+        glm::vec3 up;
+        glm::vec3 forward;
+        glm::vec3 right;
+        float speed = 0.0f;
+    } player;
+
+    struct {
+		bool left = false;
+		bool right = false;
+		bool up = false;
+		bool down = false;
+    } control;
+
+    glm::quat get_quat(float vx, float vy, float vz, float theta) {
+        theta /= 2.0;
+        return glm::quat(std::cos(theta), std::sin(theta)*vx, std::sin(theta)*vy, std::sin(theta)*vz);
+    }
 };
